@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Users, Plus, CheckCircle, Flag, MessageSquare, FileText, TrendingUp, X } from 'lucide-react';
+import { Users, Plus, CheckCircle, Flag, MessageSquare, FileText, Download, TrendingUp, X } from 'lucide-react';
 import Layout from '../../components/Layout';
 import { Card, PageHeader, Button, Badge, StatusBadge, ProgressBar, Modal, EmptyState } from '../../components/UI';
 import api from '../../api';
@@ -15,26 +15,40 @@ export default function ProjectDetail() {
   const [tasks, setTasks] = useState([]);
   const [milestones, setMilestones] = useState([]);
   const [reports, setReports] = useState([]);
+  const [papers, setPapers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAssign, setShowAssign] = useState(false);
   const [showProgress, setShowProgress] = useState(false);
   const [assignForm, setAssignForm] = useState({ student_id: '', role: 'Research Assistant', hours_per_week: 10 });
   const [progressForm, setProgressForm] = useState({ remarks: '', completion_percentage: 0 });
+  const [paperForm, setPaperForm] = useState({
+    title: '',
+    journal_name: '',
+    doi: '',
+    publication_date: new Date().toISOString().slice(0, 10),
+    file: null
+  });
+  const [uploadingPaper, setUploadingPaper] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => {
-    Promise.all([
+    setLoading(true);
+    Promise.allSettled([
       api.get(`/projects/${id}`),
       api.get(`/projects/${id}/students`),
       api.get(`/tasks/project/${id}`),
       api.get(`/milestones/${id}`),
       api.get(`/reports/${id}`),
-    ]).then(([pRes, sRes, tRes, mRes, rRes]) => {
-      setProject(pRes.data);
-      setStudents(sRes.data);
-      setTasks(tRes.data);
-      setMilestones(mRes.data);
-      setReports(rRes.data);
+      api.get(`/publications/${id}`)
+    ]).then((results) => {
+      const [pRes, sRes, tRes, mRes, rRes, pubRes] = results;
+      if (pRes.status === 'fulfilled') setProject(pRes.value.data);
+      if (sRes.status === 'fulfilled') setStudents(sRes.value.data);
+      if (tRes.status === 'fulfilled') setTasks(tRes.value.data);
+      if (mRes.status === 'fulfilled') setMilestones(mRes.value.data);
+      if (rRes.status === 'fulfilled') setReports(rRes.value.data);
+      if (pubRes.status === 'fulfilled') setPapers(pubRes.value.data);
+      else setPapers([]);
     }).finally(() => setLoading(false));
 
     if (user.role === 'faculty') {
@@ -58,6 +72,74 @@ export default function ProjectDetail() {
     setShowProgress(false);
   };
 
+  const handleUploadPaper = async (e) => {
+    e.preventDefault();
+    if (!paperForm.file) return;
+    setUploadingPaper(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('title', paperForm.title);
+      formData.append('journal_name', paperForm.journal_name);
+      formData.append('publication_date', paperForm.publication_date || new Date().toISOString().slice(0, 10));
+      formData.append('doi', paperForm.doi);
+      formData.append('project_id', id);
+      formData.append('file', paperForm.file);
+
+      await api.post('/publications/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      const rRes = await api.get(`/publications/${id}`);
+      setPapers(rRes.data);
+      setPaperForm({
+        title: '',
+        journal_name: '',
+        doi: '',
+        publication_date: new Date().toISOString().slice(0, 10),
+        file: null
+      });
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.error || 'Upload failed');
+    } finally {
+      setUploadingPaper(false);
+    }
+  };
+
+  const handleDownloadPaper = async (file_url) => {
+    if (!file_url) return;
+
+    // Keep support for externally stored URLs from the existing Publications UI.
+    if (String(file_url).startsWith('http')) {
+      window.open(file_url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    try {
+      const res = await api.get('/publications/file', {
+        params: { file_url },
+        responseType: 'blob'
+      });
+
+      const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' });
+      const filename = String(file_url).split('/').pop() || 'publication.pdf';
+      const blobUrl = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.error || 'Download failed');
+    }
+  };
+
   const latestProgress = reports.length ? reports[0].completion_percentage : 0;
 
   if (loading) return <Layout><div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><span className="spinner" /></div></Layout>;
@@ -68,6 +150,7 @@ export default function ProjectDetail() {
     { id: 'tasks', label: `Tasks (${tasks.length})`, icon: CheckCircle },
     { id: 'milestones', label: `Milestones (${milestones.length})`, icon: Flag },
     { id: 'students', label: `Team (${students.length})`, icon: Users },
+    { id: 'papers', label: `Research Papers (${papers.length})`, icon: FileText },
     { id: 'progress', label: 'Progress', icon: TrendingUp },
   ];
 
@@ -192,6 +275,101 @@ export default function ProjectDetail() {
               </div>
             ))
           }
+        </Card>
+      )}
+
+      {activeTab === 'papers' && (
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}>
+            <h3 style={{ fontWeight: 600 }}>Research Papers</h3>
+          </div>
+
+          {user.role === 'faculty' && project.lead_faculty_id === user.id && (
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-light)' }}>
+              <h4 style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>Upload PDF</h4>
+              <form onSubmit={handleUploadPaper} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div>
+                  <label style={lbl}>Title *</label>
+                  <input required value={paperForm.title} onChange={e => setPaperForm({ ...paperForm, title: e.target.value })} style={inp} placeholder="e.g., A Novel Approach to..." />
+                </div>
+                <div>
+                  <label style={lbl}>Journal Name *</label>
+                  <input required value={paperForm.journal_name} onChange={e => setPaperForm({ ...paperForm, journal_name: e.target.value })} style={inp} placeholder="e.g., IEEE Transactions on..." />
+                </div>
+                <div>
+                  <label style={lbl}>DOI</label>
+                  <input value={paperForm.doi} onChange={e => setPaperForm({ ...paperForm, doi: e.target.value })} style={inp} placeholder="10.xxxx/xxxxx" />
+                </div>
+                <div>
+                  <label style={lbl}>PDF file *</label>
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    required
+                    onChange={e => setPaperForm({ ...paperForm, file: e.target.files?.[0] || null })}
+                    style={inp}
+                  />
+                  <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-3)' }}>PDF only · Max 10MB</div>
+                </div>
+                <Button type="submit" disabled={uploadingPaper}>
+                  <FileText size={14} /> {uploadingPaper ? 'Uploading...' : 'Upload Research Paper'}
+                </Button>
+              </form>
+            </div>
+          )}
+
+          {papers.length === 0 ? (
+            <div style={{ padding: 20 }}>
+              <EmptyState icon={FileText} title="No research papers yet" description="Upload a PDF to share with the project team." />
+            </div>
+          ) : (
+            <div style={{ padding: '16px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
+              {papers.map(pub => (
+                <Card
+                  key={pub.publication_id}
+                  style={{ transition: 'all 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = 'var(--shadow)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = 'var(--shadow-sm)'; }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                    <div style={{ flex: 1, marginRight: 10 }}>
+                      <h3 style={{ fontWeight: 600, fontSize: 15, color: 'var(--text)', lineHeight: 1.4, marginBottom: 4 }}>{pub.title}</h3>
+                      {pub.journal_name && (
+                        <div style={{ fontSize: 12, color: 'var(--primary)', fontStyle: 'italic' }}>{pub.journal_name}</div>
+                      )}
+                    </div>
+                    <FileText size={18} color="var(--text-3)" style={{ flexShrink: 0 }} />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                    {pub.publication_date && (
+                      <Badge>{new Date(pub.publication_date).getFullYear()}</Badge>
+                    )}
+                    {pub.doi && (
+                      <a
+                        href={`https://doi.org/${pub.doi}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--primary)', padding: '2px 8px', background: 'var(--primary-light)', borderRadius: 100, fontWeight: 600 }}
+                      >
+                        DOI
+                      </a>
+                    )}
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    {pub.file_url ? (
+                      <Button size="sm" variant="secondary" type="button" onClick={() => handleDownloadPaper(pub.file_url)}>
+                        <Download size={14} /> Download PDF
+                      </Button>
+                    ) : (
+                      <div style={{ fontSize: 12, color: 'var(--text-3)' }}>No PDF file</div>
+                    )}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
         </Card>
       )}
 
