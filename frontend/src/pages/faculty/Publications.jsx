@@ -36,6 +36,38 @@ export default function Publications() {
     setForm({ title: '', journal_name: '', publication_date: '', doi: '', file_url: '' });
   };
 
+  const handleDownload = async (file_url) => {
+    if (!file_url) return;
+
+    if (String(file_url).startsWith('http')) {
+      window.open(file_url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    try {
+      const res = await api.get('/publications/file', {
+        params: { file_url },
+        responseType: 'blob'
+      });
+
+      const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' });
+      const filename = String(file_url).split('/').pop() || 'publication.pdf';
+      const blobUrl = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.error || 'Download failed');
+    }
+  };
+
   return (
     <Layout>
       <PageHeader title="Publications" subtitle="Manage research papers and journal articles">
@@ -84,10 +116,18 @@ export default function Publications() {
                   </a>
                 )}
                 {pub.file_url && (
-                  <a href={pub.file_url} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--success)', padding: '2px 8px', background: '#F0FDF4', borderRadius: 100, fontWeight: 600 }}>
-                    <Download size={10} /> PDF
-                  </a>
+                  String(pub.file_url).startsWith('http') ? (
+                    <a href={pub.file_url} target="_blank" rel="noopener noreferrer"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--success)', padding: '2px 8px', background: '#F0FDF4', borderRadius: 100, fontWeight: 600 }}>
+                      <Download size={10} /> PDF
+                    </a>
+                  ) : (
+                    <button type="button"
+                      onClick={() => handleDownload(pub.file_url)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--success)', padding: '2px 8px', background: '#F0FDF4', borderRadius: 100, fontWeight: 600, border: 'none', cursor: 'pointer' }}>
+                      <Download size={10} /> PDF
+                    </button>
+                  )
                 )}
               </div>
             </Card>

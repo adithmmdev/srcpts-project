@@ -1,6 +1,37 @@
 const router = require('express').Router();
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+
+// Local upload storage for project publications.
+const uploadDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+const publicationStorage = multer.diskStorage({
+  destination: function (_req, _file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (_req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase() || '.pdf';
+    const safeExt = ext === '.pdf' ? ext : '.pdf';
+    const unique = `${Date.now()}_${Math.round(Math.random() * 1e9)}`;
+    cb(null, `publication_${unique}${safeExt}`);
+  }
+});
+
+const publicationUpload = multer({
+  storage: publicationStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: function (_req, file, cb) {
+    const isPdf =
+      file.mimetype === 'application/pdf' || path.extname(file.originalname).toLowerCase() === '.pdf';
+    cb(null, isPdf);
+  }
+});
 
 // MILESTONES
 router.get('/milestones/:project_id', authenticate, async (req, res) => {
@@ -62,11 +93,102 @@ router.post('/reports', authenticate, requireRole('faculty'), async (req, res) =
 });
 
 // PUBLICATIONS
-router.get('/publications/:project_id', authenticate, async (req, res) => {
+router.get('/publications/file', authenticate, async (req, res) => {
+  const { file_url } = req.query;
+  if (!file_url) return res.status(400).json({ error: 'file_url required' });
+
   try {
+    const pubRes = await pool.query(
+      'SELECT publication_id, project_id, file_url FROM Publication WHERE file_url=$1',
+      [file_url]
+    );
+    if (!pubRes.rows.length) return res.status(404).json({ error: 'Not found' });
+
+    const pub = pubRes.rows[0];
+    const projectId = pub.project_id;
+
+    // Enforce access control for downloads.
+    if (req.user.role === 'faculty') {
+      const access = await pool.query(
+        'SELECT 1 FROM Research_Project WHERE project_id=$1 AND lead_faculty_id=$2',
+        [projectId, req.user.id]
+      );
+      if (!access.rows.length) return res.status(403).json({ error: 'Forbidden' });
+    } else if (req.user.role === 'student') {
+      const access = await pool.query(
+        'SELECT 1 FROM Project_Assignment WHERE project_id=$1 AND student_id=$2',
+        [projectId, req.user.id]
+      );
+      if (!access.rows.length) return res.status(403).json({ error: 'Forbidden' });
+    } else {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // Prevent path traversal by using basename only.
+    const filename = path.basename(pub.file_url);
+    const filePath = path.join(uploadDir, filename);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    return res.sendFile(filePath);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post(
+  '/publications/upload',
+  authenticate,
+  requireRole('faculty'),
+  publicationUpload.single('file'),
+  async (req, res) => {
+    try {
+      const { title, journal_name, publication_date, doi, project_id } = req.body;
+
+      if (!req.file) return res.status(400).json({ error: 'PDF file is required' });
+
+      // Faculty can only upload for projects they lead.
+      const access = await pool.query(
+        'SELECT 1 FROM Research_Project WHERE project_id=$1 AND lead_faculty_id=$2',
+        [project_id, req.user.id]
+      );
+      if (!access.rows.length) return res.status(403).json({ error: 'Forbidden' });
+
+      const file_url = `uploads/${req.file.filename}`;
+      const result = await pool.query(
+        'INSERT INTO Publication (title, journal_name, publication_date, doi, file_url, project_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+        [title, journal_name || null, publication_date || null, doi || null, file_url, project_id]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+router.get('/publications/:project_id', authenticate, async (req, res) => {
+  const projectId = req.params.project_id;
+
+  try {
+    // Enforce access control for listing publications.
+    // Spec: students can only view assigned projects; faculty can view.
+    if (req.user.role === 'student') {
+      const access = await pool.query(
+        'SELECT 1 FROM Project_Assignment WHERE project_id=$1 AND student_id=$2',
+        [projectId, req.user.id]
+      );
+      if (!access.rows.length) return res.status(403).json({ error: 'Forbidden' });
+    } else {
+      // Allow faculty viewing; deny other roles (e.g., agency).
+      if (req.user.role !== 'faculty') return res.status(403).json({ error: 'Forbidden' });
+    }
+
     const result = await pool.query(
-      'SELECT * FROM Publication WHERE project_id=$1 ORDER BY publication_date DESC',
-      [req.params.project_id]
+      'SELECT * FROM Publication WHERE project_id=$1 ORDER BY publication_date DESC NULLS LAST',
+      [projectId]
     );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
@@ -75,6 +197,13 @@ router.get('/publications/:project_id', authenticate, async (req, res) => {
 router.post('/publications', authenticate, requireRole('faculty'), async (req, res) => {
   const { title, journal_name, publication_date, doi, file_url, project_id } = req.body;
   try {
+    // Faculty can only insert publications for projects they lead.
+    const access = await pool.query(
+      'SELECT 1 FROM Research_Project WHERE project_id=$1 AND lead_faculty_id=$2',
+      [project_id, req.user.id]
+    );
+    if (!access.rows.length) return res.status(403).json({ error: 'Forbidden' });
+
     const result = await pool.query(
       'INSERT INTO Publication (title, journal_name, publication_date, doi, file_url, project_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [title, journal_name, publication_date, doi, file_url, project_id]
