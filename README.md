@@ -1,250 +1,167 @@
-# SRCPTS — Smart Research Collaboration & Project Tracking System
+# SRCPTS
 
-A full-stack research lifecycle platform for faculty, students, and funding agencies.
+I built SRCPTS as a research project management system for students, faculty and funding agencies.
 
----
+I wanted to work on a project where the frontend, backend and database all had to fit together, so I implemented authentication, role based access, research projects, tasks, milestones, publications, grants and chat.
 
-## 🏗️ Tech Stack
+## What I built
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 18 (Vite) + React Router + Axios |
-| Backend | Node.js + Express |
-| Database | PostgreSQL |
-| Auth | JWT (role-based) |
-| Deployment | Docker Compose |
-
----
-
-## 🚀 Quick Start (Docker — Recommended)
-
-### Prerequisites
-- Docker & Docker Compose installed
-
-```bash
-# 1. Clone / unzip the project
-cd srcpts
-
-# 2. Start all services
-docker-compose up --build
-
-# 3. Open in browser
-http://localhost:3000
-```
-
-That's it! The database schema initializes automatically on first run.
-
----
-
-## 💻 Local Development (No Docker)
-
-### Prerequisites
-- Node.js 18+
-- PostgreSQL 14+
-
-### 1. Database Setup
-
-```sql
--- In psql:
-CREATE DATABASE srcpts;
-```
-
-### 2. Backend
-
-```bash
-cd backend
-npm install
-
-# Create .env file:
-echo "DATABASE_URL=postgresql://postgres:yourpassword@localhost:5432/srcpts
-JWT_SECRET=your_secret_key
-PORT=5000" > .env
-
-npm run dev
-# Backend starts on http://localhost:5000
-```
-
-### 3. Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-# Frontend starts on http://localhost:3000
-```
-
----
-
-## 👥 User Roles & Access
+There are three main types of users.
 
 ### Faculty
-- Create and manage research projects
-- Assign students to projects
-- Create tasks and assign to students
-- Add milestones with deadlines
-- Submit progress reports
-- Upload publications (PDF/DOI/URL)
-- Chat with project team
 
-### Student
-- View assigned projects only
-- Mark tasks as complete / in-progress
-- View milestones and deadlines
-- Chat with project team
-- Access project publications
+* Create and manage research projects
+* Assign students to projects
+* Create tasks and milestones
+* Add progress reports and publications
+* Work with project members through chat
 
-### Funding Agency
-- View all research projects
-- Fund projects (add grants with amounts)
-- Update existing grants
-- View own grant portfolio
-- Chat with project teams
+### Students
 
----
+* View projects they are assigned to
+* Work on their tasks
+* Track milestones
+* View project publications
+* Use project chat
 
-## 🔐 Authentication
+### Funding agencies
 
-Users register separately as Student / Faculty / Agency. Login uses **email + password** — the backend automatically detects the role from the appropriate table.
+* View research projects
+* Add grants
+* Track funded projects
 
-### Register Test Accounts
+## How it works
 
-**Faculty:**
-- POST `/api/auth/register/faculty`
-- `{ "name": "Prof. Smith", "email": "smith@uni.edu", "password": "pass123", "specialization": "AI" }`
-
-**Student:**
-- POST `/api/auth/register/student`
-- `{ "name": "Alice Chen", "email": "alice@uni.edu", "password": "pass123", "program": "MSc CS", "year": 2 }`
-
-**Agency:**
-- POST `/api/auth/register/agency`
-- `{ "agency_name": "NSF", "contact_email": "grants@nsf.gov", "password": "pass123", "type": "Government" }`
-
----
-
-## 📡 API Reference
-
-### Auth
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/login` | Login (all roles) |
-| POST | `/api/auth/register/student` | Register student |
-| POST | `/api/auth/register/faculty` | Register faculty |
-| POST | `/api/auth/register/agency` | Register agency |
-
-### Projects
-| Method | Endpoint | Access |
-|--------|----------|--------|
-| GET | `/api/projects` | All (filtered by role) |
-| POST | `/api/projects` | Faculty only |
-| GET | `/api/projects/:id` | All |
-| PUT | `/api/projects/:id` | Faculty (own projects) |
-| GET | `/api/projects/:id/students` | All |
-| POST | `/api/projects/:id/assign` | Faculty only |
-| GET | `/api/projects/all/students` | Faculty only |
-
-### Tasks
-| Method | Endpoint | Access |
-|--------|----------|--------|
-| GET | `/api/tasks/project/:id` | All (student filtered) |
-| POST | `/api/tasks` | Faculty only |
-| PUT | `/api/tasks/:id` | All (student: own tasks) |
-| DELETE | `/api/tasks/:id` | Faculty only |
-
-### Milestones
-| Method | Endpoint | Access |
-|--------|----------|--------|
-| GET | `/api/milestones/:project_id` | All |
-| POST | `/api/milestones` | Faculty only |
-| PUT | `/api/milestones/:project_id/:no` | Faculty only |
-
-### Progress Reports
-| Method | Endpoint | Access |
-|--------|----------|--------|
-| GET | `/api/reports/:project_id` | All |
-| POST | `/api/reports` | Faculty only |
-
-### Publications
-| Method | Endpoint | Access |
-|--------|----------|--------|
-| GET | `/api/publications/:project_id` | All |
-| POST | `/api/publications` | Faculty only |
-
-### Chat
-| Method | Endpoint | Access |
-|--------|----------|--------|
-| GET | `/api/chat/:project_id` | All |
-| POST | `/api/chat/send` | All |
-
-### Grants (Agency)
-| Method | Endpoint | Access |
-|--------|----------|--------|
-| GET | `/api/grants` | Agency only |
-| POST | `/api/grants` | Agency only |
-| GET | `/api/all-projects` | Agency only |
-
----
-
-## 🗂️ Project Structure
-
+```text
+React frontend
+      ↓
+Express REST API
+      ↓
+JWT authentication and role checks
+      ↓
+PostgreSQL
 ```
-srcpts/
+
+The frontend talks to the Express API through Axios. Protected requests include a JWT and the backend checks the user's role before allowing access to restricted operations.
+
+PostgreSQL stores the research data and the relationships between projects, students, faculty, tasks, publications and grants.
+
+## Database
+
+The database was one of the main parts I wanted to understand while building this project.
+
+The main tables include:
+
+```text
+Department
+   ↓
+Faculty ──────── Research_Project ──────── Publication
+                    │
+                    ├── Project_Assignment ── Student
+                    ├── Task
+                    ├── Milestone
+                    ├── Progress_Report
+                    ├── Project_Grant ────── Funding_Agency
+                    └── Project_Resource ─── Resource
+```
+
+The schema uses foreign keys to keep the relationships consistent and composite primary keys for relationships such as project assignments and project grants.
+
+## Authentication and access
+
+Users log in through the same API and the backend identifies whether the account belongs to a student, faculty member or funding agency.
+
+Passwords are stored using bcrypt hashes. Protected requests use JWT bearer tokens, and role checks are applied to routes that should only be available to a particular type of user.
+
+I also removed hard coded JWT secrets from the application and Docker configuration. The secret now comes from the environment.
+
+## API
+
+Some of the main routes are:
+
+```text
+POST /api/auth/login
+POST /api/auth/register/student
+POST /api/auth/register/faculty
+POST /api/auth/register/agency
+
+GET  /api/projects
+POST /api/projects
+PUT  /api/projects/:id
+POST /api/projects/:id/assign
+
+GET  /api/tasks/project/:project_id
+POST /api/tasks
+PUT  /api/tasks/:id
+DELETE /api/tasks/:id
+
+GET  /api/milestones/:project_id
+GET  /api/reports/:project_id
+GET  /api/publications/:project_id
+GET  /api/chat/:project_id
+GET  /api/grants
+```
+
+The backend uses parameterized PostgreSQL queries for database operations.
+
+## Project structure
+
+```text
+srcpts-project/
 ├── backend/
 │   ├── db/
-│   │   ├── pool.js          # PostgreSQL connection
-│   │   └── schema.sql       # Database schema
+│   │   ├── pool.js
+│   │   └── schema.sql
 │   ├── middleware/
-│   │   └── auth.js          # JWT middleware
+│   │   └── auth.js
 │   ├── routes/
-│   │   ├── auth.js          # Auth endpoints
-│   │   ├── projects.js      # Project endpoints
-│   │   ├── tasks.js         # Task endpoints
-│   │   └── misc.js          # Milestones, chat, publications, grants
-│   ├── server.js
-│   └── package.json
+│   │   ├── auth.js
+│   │   ├── projects.js
+│   │   ├── tasks.js
+│   │   └── misc.js
+│   └── server.js
 ├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Layout.jsx
-│   │   │   ├── Sidebar.jsx
-│   │   │   └── UI.jsx       # Reusable components
-│   │   ├── context/
-│   │   │   └── AuthContext.jsx
-│   │   ├── pages/
-│   │   │   ├── auth/        # Login, Register
-│   │   │   ├── faculty/     # Dashboard, Projects, Tasks, etc.
-│   │   │   ├── student/     # Dashboard
-│   │   │   └── agency/      # Dashboard, Funding
-│   │   ├── api.js           # Axios instance
-│   │   ├── App.jsx          # Router
-│   │   └── main.jsx
-│   └── package.json
+│   └── src/
+│       ├── components/
+│       ├── context/
+│       ├── pages/
+│       ├── api.js
+│       └── App.jsx
+├── backend/Dockerfile
+├── frontend/Dockerfile
 └── docker-compose.yml
 ```
 
----
+## Running with Docker
 
-## 🔒 Security
+Docker Compose starts PostgreSQL, the Express backend and the React frontend together.
 
-- Passwords hashed with bcryptjs (10 rounds)
-- JWT tokens with 7-day expiry
-- Role-based access control on all routes
-- Data filtering: users only see their own data
-- Foreign key constraints enforce referential integrity
+```bash
+docker compose up --build
+```
 
----
+Then open:
 
-## 📱 Features
+```text
+http://localhost:3000
+```
 
-| Feature | Faculty | Student | Agency |
-|---------|---------|---------|--------|
-| Create Project | ✅ | ❌ | ❌ |
-| View Projects | Own | Assigned | All |
-| Assign Students | ✅ | ❌ | ❌ |
-| Create Tasks | ✅ | ❌ | ❌ |
-| Complete Tasks | ✅ | Own | ❌ |
-| Add Milestones | ✅ | ❌ | ❌ |
-| Progress Reports | ✅ | View | View |
-| Publications | ✅ | View | ❌ |
-| Chat | ✅ | ✅ | ✅ |
-| Fund Projects | ❌ | ❌ | ✅ |
+For local development without Docker, install Node.js and PostgreSQL, create the database and provide the required environment variables.
+
+## What I learned
+
+The main thing I learned from this project was how much an application depends on the database design.
+
+It is easy to make a page that shows projects or tasks. The harder part is making sure the relationships are correct and that a student cannot access another student's data, or a faculty member cannot edit someone else's project.
+
+Working on the API and SQL queries also helped me understand how authentication, authorization and database queries fit together instead of treating them as separate parts.
+
+## Current limitations
+
+This is a project I built to learn and implement a complete research management workflow. It is not intended to be a production system yet.
+
+Some areas I would improve next are better automated API tests, stronger request validation, more detailed logging and a more complete deployment setup.
+
+## Tech used
+
+React, Vite, Node.js, Express, PostgreSQL, JWT, bcryptjs, Docker, Axios and Nginx.
