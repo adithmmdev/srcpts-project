@@ -3,7 +3,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../db/pool');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'srcpts_secret_key_2024';
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
 
 // Login - detects role dynamically
 router.post('/login', async (req, res) => {
@@ -11,7 +15,6 @@ router.post('/login', async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
   try {
-    // Check Faculty
     let result = await pool.query('SELECT * FROM Faculty WHERE email = $1', [email]);
     if (result.rows.length > 0) {
       const user = result.rows[0];
@@ -21,7 +24,6 @@ router.post('/login', async (req, res) => {
       return res.json({ token, role: 'faculty', name: user.name, id: user.faculty_id });
     }
 
-    // Check Student
     result = await pool.query('SELECT * FROM Student WHERE email = $1', [email]);
     if (result.rows.length > 0) {
       const user = result.rows[0];
@@ -31,7 +33,6 @@ router.post('/login', async (req, res) => {
       return res.json({ token, role: 'student', name: user.name, id: user.student_id });
     }
 
-    // Check Funding Agency
     result = await pool.query('SELECT * FROM Funding_Agency WHERE contact_email = $1', [email]);
     if (result.rows.length > 0) {
       const user = result.rows[0];
@@ -41,7 +42,7 @@ router.post('/login', async (req, res) => {
       return res.json({ token, role: 'agency', name: user.agency_name, id: user.agency_id });
     }
 
-    return res.status(401).json({ error: 'User not found' });
+    return res.status(401).json({ error: 'Invalid credentials' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -51,6 +52,8 @@ router.post('/login', async (req, res) => {
 // Register Student
 router.post('/register/student', async (req, res) => {
   const { name, email, password, program, year, dept_id } = req.body;
+  if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password are required' });
+
   try {
     const hashed = await bcrypt.hash(password, 10);
     const result = await pool.query(
@@ -68,6 +71,8 @@ router.post('/register/student', async (req, res) => {
 // Register Faculty
 router.post('/register/faculty', async (req, res) => {
   const { name, email, password, specialization, salary, dept_id } = req.body;
+  if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password are required' });
+
   try {
     const hashed = await bcrypt.hash(password, 10);
     const result = await pool.query(
@@ -85,6 +90,8 @@ router.post('/register/faculty', async (req, res) => {
 // Register Agency
 router.post('/register/agency', async (req, res) => {
   const { agency_name, type, contact_email, password } = req.body;
+  if (!agency_name || !contact_email || !password) return res.status(400).json({ error: 'Agency name, email and password are required' });
+
   try {
     const hashed = await bcrypt.hash(password, 10);
     const result = await pool.query(
