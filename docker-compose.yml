@@ -5,15 +5,15 @@ services:
     image: postgres:15-alpine
     container_name: srcpts_db
     environment:
-      POSTGRES_DB: srcpts
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-srcpts}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -22,11 +22,12 @@ services:
     build: ./backend
     container_name: srcpts_backend
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/srcpts
-      JWT_SECRET: srcpts_super_secret_jwt_key_2024
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-srcpts}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      NODE_ENV: production
       PORT: 5000
     ports:
-      - "5000:5000"
+      - "${BACKEND_PORT:-5000}:5000"
     depends_on:
       db:
         condition: service_healthy
@@ -36,7 +37,7 @@ services:
     build: ./frontend
     container_name: srcpts_frontend
     ports:
-      - "3000:80"
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       - backend
 
